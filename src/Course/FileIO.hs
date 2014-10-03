@@ -63,7 +63,9 @@ the contents of c
 main ::
   IO ()
 main =
-  error "todo"
+  getArgs
+  >>= (getFile . head)
+  >>= \(_, paths) -> run paths
 
 type FilePath =
   Chars
@@ -73,30 +75,46 @@ run ::
   Chars
   -> IO ()
 run =
-  error "todo"
+  (printFiles <=< getFiles) . lines
 
 getFiles ::
   List FilePath
   -> IO (List (FilePath, Chars))
+{-
+getFiles Nil = pure Nil
+getFiles (x :. xs) = do
+  f <- getFile x
+  fs <- getFiles xs
+  return $ f :. fs
+-}
 getFiles =
-  error "todo"
+  foldRight
+    (\fp acc ->
+      --acc >>= (\a -> (do gfp <- getFile fp; return (gfp :. a))))
+      (:.) <$> (getFile fp) <*> acc)
+    (pure Nil)
 
 getFile ::
   FilePath
   -> IO (FilePath, Chars)
-getFile =
-  error "todo"
+getFile fp = do
+  contents <- readFile fp
+  return (fp, contents)
 
 printFiles ::
   List (FilePath, Chars)
   -> IO ()
 printFiles =
-  error "todo"
+  foldLeft
+    (\m (fp, contents) ->
+      m >> printFile fp contents)
+    (return ())
 
 printFile ::
   FilePath
   -> Chars
   -> IO ()
-printFile =
-  error "todo"
+printFile fp contents = do
+  putStrLn $ "============ " ++ fp
+  putStrLn contents
 
