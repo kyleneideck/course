@@ -154,7 +154,11 @@ filtering ::
   -> List a
   -> f (List a)
 filtering p l =
-  error "todo" --zipWith (\x y -> if ) l (map p l)
+  flatten <$> (
+    sequence $
+      (\a ->
+        (\t -> if t then (a :. Nil) else Nil) <$> (p a))
+      <$> l)
 
 -----------------------
 -- SUPPORT LIBRARIES --
