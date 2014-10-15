@@ -41,8 +41,8 @@ instance Functor f => Functor (StateT s f) where
     (a -> b)
     -> StateT s f a
     -> StateT s f b
-  (<$>) =
-    error "todo"
+  f <$> (StateT s) =
+    StateT $ \t -> (\(a, u) -> (f a, u)) <$> (s t)
 
 -- | Implement the `Apply` instance for @StateT s f@ given a @Bind f@.
 --
@@ -57,8 +57,10 @@ instance Bind f => Apply (StateT s f) where
     StateT s f (a -> b)
     -> StateT s f a
     -> StateT s f b
-  (<*>) =
-    error "todo"
+  (StateT f) <*> (StateT s) =
+    StateT $ \seed ->
+      --(lift2 (\(a, _) (b, u) -> (a b, u)) (f seed) (join $ s <$> (snd <$> (f seed))))
+      ((\(fa, fs) -> (\(sa, ss) -> (fa sa, ss)) <$> (s fs)) <=< f) seed
 
 -- | Implement the `Applicative` instance for @StateT s f@ given a @Applicative f@.
 --
@@ -71,21 +73,27 @@ instance Monad f => Applicative (StateT s f) where
   pure ::
     a
     -> StateT s f a
-  pure =
-    error "todo"
+  pure a =
+    StateT $ \s -> pure (a, s)
 
 -- | Implement the `Bind` instance for @StateT s f@ given a @Monad f@.
 -- Make sure the state value is passed through in `bind`.
 --
 -- >>> runStateT ((const $ putT 2) =<< putT 1) 0
 -- ((),2)
+--
+-- >>> runStateT ((\a -> StateT (\s -> pure (a, s))) =<< StateT (\t -> pure (1, t))) 0
+-- (1,0)
 instance Monad f => Bind (StateT s f) where
   (=<<) ::
     (a -> StateT s f b)
     -> StateT s f a
     -> StateT s f b
-  (=<<) =
-    error "todo"
+  g =<< StateT t =
+    StateT $ \seed ->
+      (\(ta, ts) ->
+        runStateT (g ta) ts)
+      =<< (t seed)
 
 instance Monad f => Monad (StateT s f) where
 
@@ -101,7 +109,7 @@ state' ::
   (s -> (a, s))
   -> State' s a
 state' =
-  error "todo"
+  StateT . (<$>) Id
 
 -- | Provide an unwrapper for `State'` values.
 --
@@ -111,8 +119,8 @@ runState' ::
   State' s a
   -> s
   -> (a, s)
-runState' =
-  error "todo"
+runState' (StateT t) =
+  runId . t
 
 -- | Run the `StateT` seeded with `s` and retrieve the resulting state.
 execT ::
@@ -120,16 +128,16 @@ execT ::
   StateT s f a
   -> s
   -> f s
-execT =
-  error "todo"
+execT (StateT t) sv =
+  snd <$> (t sv)
 
 -- | Run the `State` seeded with `s` and retrieve the resulting state.
 exec' ::
   State' s a
   -> s
   -> s
-exec' =
-  error "todo"
+exec' t =
+  runId . execT t
 
 -- | Run the `StateT` seeded with `s` and retrieve the resulting value.
 evalT ::
@@ -137,16 +145,16 @@ evalT ::
   StateT s f a
   -> s
   -> f a
-evalT =
-  error "todo"
+evalT (StateT t) sv =
+  fst <$> (t sv)
 
 -- | Run the `State` seeded with `s` and retrieve the resulting value.
 eval' ::
   State' s a
   -> s
   -> a
-eval' =
-  error "todo"
+eval' t =
+  runId . evalT t
 
 -- | A `StateT` where the state also distributes into the produced value.
 --
@@ -156,7 +164,7 @@ getT ::
   Monad f =>
   StateT s f s
 getT =
-  error "todo"
+  StateT $ \s -> pure (s, s)
 
 -- | A `StateT` where the resulting state is seeded with the given value.
 --
@@ -169,8 +177,8 @@ putT ::
   Monad f =>
   s
   -> StateT s f ()
-putT =
-  error "todo"
+putT x =
+  StateT $ \_ -> pure ((), x)
 
 -- | Remove all duplicate elements in a `List`.
 --
@@ -182,7 +190,11 @@ distinct' ::
   List a
   -> List a
 distinct' =
-  error "todo"
+  flip eval' S.empty
+  . filtering
+    (\a ->
+      state' $ \s ->
+        (not $ S.member a s, S.insert a s))
 
 -- | Remove all duplicate elements in a `List`.
 -- However, if you see a value greater than `100` in the list,
@@ -200,7 +212,13 @@ distinctF ::
   List a
   -> Optional (List a)
 distinctF =
-  error "todo"
+  flip evalT S.empty
+  . filtering
+    (\a ->
+      StateT $ \s ->
+        if a > 100
+          then Empty
+          else Full (not $ S.member a s, S.insert a s))
 
 -- | An `OptionalT` is a functor of an `Optional` value.
 data OptionalT f a =
@@ -214,29 +232,35 @@ data OptionalT f a =
 -- >>> runOptionalT $ (+1) <$> OptionalT (Full 1 :. Empty :. Nil)
 -- [Full 2,Empty]
 instance Functor f => Functor (OptionalT f) where
-  (<$>) =
-    error "todo"
+  f <$> (OptionalT o) =
+    OptionalT $ mapOptional f <$> o
 
 -- | Implement the `Apply` instance for `OptionalT f` given a Apply f.
 --
 -- >>> runOptionalT $ OptionalT (Full (+1) :. Full (+2) :. Nil) <*> OptionalT (Full 1 :. Empty :. Nil)
 -- [Full 2,Empty,Full 3,Empty]
 instance Apply f => Apply (OptionalT f) where
-  (<*>) =
-    error "todo"
+  (OptionalT f) <*> (OptionalT o) =
+    OptionalT $ lift2 (<*>) f o
 
 -- | Implement the `Applicative` instance for `OptionalT f` given a Applicative f.
 instance Applicative f => Applicative (OptionalT f) where
   pure =
-    error "todo"
+    OptionalT . pure . pure
 
 -- | Implement the `Bind` instance for `OptionalT f` given a Monad f.
 --
+-- >>> runOptionalT $ (\a -> OptionalT (Id (Full (a*2)))) =<< OptionalT (Id (Full 2))
+-- Id (Full 4)
 -- >>> runOptionalT $ (\a -> OptionalT (Full (a+1) :. Full (a+2) :. Nil)) =<< OptionalT (Full 1 :. Empty :. Nil)
 -- [Full 2,Full 3,Empty]
 instance Monad f => Bind (OptionalT f) where
-  (=<<) =
-    error "todo"
+  f =<< (OptionalT o) =
+    OptionalT $
+    o >>=
+    (\a -> case a of
+      Full a' -> (runOptionalT . f) a'
+      Empty -> pure Empty)
 
 instance Monad f => Monad (OptionalT f) where
 
@@ -250,16 +274,16 @@ data Logger l a =
 -- >>> (+3) <$> Logger (listh [1,2]) 3
 -- Logger [1,2] 6
 instance Functor (Logger l) where
-  (<$>) =
-    error "todo"
+  f <$> Logger l a =
+    Logger l (f a)
 
 -- | Implement the `Apply` instance for `Logger`.
 --
 -- >>> Logger (listh [1,2]) (+7) <*> Logger (listh [3,4]) 3
 -- Logger [1,2,3,4] 10
 instance Apply (Logger l) where
-  (<*>) =
-    error "todo"
+  Logger l1 f <*> Logger l2 a =
+    Logger (l1 ++ l2) (f a)
 
 -- | Implement the `Applicative` instance for `Logger`.
 --
@@ -267,7 +291,7 @@ instance Apply (Logger l) where
 -- Logger [] "table"
 instance Applicative (Logger l) where
   pure =
-    error "todo"
+    Logger Nil
 
 -- | Implement the `Bind` instance for `Logger`.
 -- The `bind` implementation must append log values to maintain associativity.
@@ -275,8 +299,8 @@ instance Applicative (Logger l) where
 -- >>> (\a -> Logger (listh [4,5]) (a+3)) =<< Logger (listh [1,2]) 3
 -- Logger [1,2,4,5] 6
 instance Bind (Logger l) where
-  (=<<) =
-    error "todo"
+  f =<< Logger l a =
+    (Logger l id) <*> (f a)
 
 instance Monad (Logger l) where
 
@@ -289,7 +313,7 @@ log1 ::
   -> a
   -> Logger l a
 log1 =
-  error "todo"
+  Logger . (:. Nil)
 
 -- | Remove all duplicate integers from a list. Produce a log as you go.
 -- If there is an element above 100, then abort the entire computation and produce no result.
@@ -310,4 +334,17 @@ distinctG ::
   List a
   -> Logger Chars (Optional (List a))
 distinctG =
-  error "todo"
+  runOptionalT
+  . flip evalT S.empty
+  . filtering
+    (\a ->
+      let logmsg = if even a
+                      then ("even number: " ++ show' a) :. Nil
+                      else Nil
+      in StateT $ \s ->
+        if a > 100
+           then OptionalT
+                $ log1 ("aborting > 100: " ++ show' a) Empty
+           else OptionalT
+                $ Logger logmsg
+                $ Full (not $ S.member a s, S.insert a s))
